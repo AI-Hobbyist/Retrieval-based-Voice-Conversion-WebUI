@@ -25,6 +25,23 @@ from .service import InferenceService
 logger = logging.getLogger("rvc_api")
 
 
+class ManagedStreamingResponse(StreamingResponse):
+    """Own cleanup even when ASGI send blocks outside the body generator."""
+    def __init__(self, content, cleanup, **kwargs):
+        super().__init__(content, **kwargs)
+        self.cleanup = cleanup
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with anyio.CancelScope(shield=True):
+                try:
+                    await self.cleanup()
+                finally:
+                    await self.body_iterator.aclose()
+
+
 def create_app(settings=None, engine_factory=None):
     settings = settings or Settings.from_env()
     registry = ModelRegistry(settings.project_root)
@@ -147,6 +164,19 @@ def create_app(settings=None, engine_factory=None):
             start = await asyncio.wait_for(asyncio.shield(job.ready), settings.inference_timeout)
             boundary = "rvc_" + request_id
 
+            cleaned = False
+            async def cleanup_response():
+                nonlocal cleaned
+                if cleaned:
+                    return
+                cleaned = True
+                with anyio.CancelScope(shield=True):
+                    try:
+                        await service.finish(job)
+                    finally:
+                        service.stream_slots.release()
+                        temp.cleanup()
+
             async def response():
                 try:
                     for item in part(boundary, "start", start):
@@ -179,15 +209,10 @@ def create_app(settings=None, engine_factory=None):
                             break
                     yield closing(boundary)
                 finally:
-                    with anyio.CancelScope(shield=True):
-                        try:
-                            await service.finish(job)
-                        finally:
-                            service.stream_slots.release()
-                            temp.cleanup()
+                    await cleanup_response()
 
             transferred = True
-            return StreamingResponse(response(), media_type="multipart/mixed; boundary=" + boundary,
+            return ManagedStreamingResponse(response(), cleanup_response, media_type="multipart/mixed; boundary=" + boundary,
                                      headers={"X-Request-ID": request_id, "Cache-Control": "no-store",
                                               "X-Accel-Buffering": "no"})
         except ClientDisconnect as exc:

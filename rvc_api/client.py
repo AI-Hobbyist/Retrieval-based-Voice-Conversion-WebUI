@@ -69,6 +69,7 @@ def infer(url, source, destination, parameters, token="", on_progress=None):
         headers["Authorization"] = "Bearer " + token
     request = urllib.request.Request(url.rstrip("/") + "/api/v1/infer?" + query, data=upload(), headers=headers, method="POST")
     writer = None
+    saved = False
     done, start, samples, chunks = None, None, 0, 0
     try:
         with urllib.request.urlopen(request, timeout=700) as response:
@@ -115,11 +116,12 @@ def infer(url, source, destination, parameters, token="", on_progress=None):
         writer.close()
         writer = None
         partial.replace(destination)
+        saved = True
         return done
     finally:
         if writer:
             writer.close()
-        if done is None and partial.exists():
+        if not saved and partial.exists():
             partial.unlink()
 
 
