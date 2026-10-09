@@ -92,13 +92,15 @@ class ModelRegistry:
                 self._cache[key] = value
             return copy.deepcopy(self._cache[key])
 
-    def scan(self):
+    def scan(self, only_model=None):
         if not self.root.exists():
             return {"state": "directory_missing", "models": [], "issues": []}
         if is_link(self.root) or not self.root.is_dir():
             return {"state": "invalid_directory", "models": [], "issues": ["模型根目录必须是普通目录"]}
         models, issues, names = [], [], set()
         for folder in sorted(self.root.iterdir(), key=lambda p: p.name.casefold()):
+            if only_model is not None and folder.name != only_model:
+                continue
             if is_link(folder) or not folder.is_dir():
                 continue
             if folder.name.casefold() in names:
@@ -130,7 +132,7 @@ class ModelRegistry:
 
     def model(self, model_id):
         InferParams(model_id=model_id)
-        for model in self.scan()["models"]:
+        for model in self.scan(only_model=model_id)["models"]:
             if model["model_id"] == model_id:
                 return model
         raise APIError("MODEL_NOT_FOUND", "模型不存在", 404)

@@ -1,4 +1,5 @@
 import os
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,7 +33,7 @@ class Settings:
             key = "API_" + name.upper()
             if key in os.environ:
                 value = kind(os.environ[key])
-                if value <= 0 or not __import__("math").isfinite(value):
+                if value <= 0 or not math.isfinite(value):
                     raise ValueError(f"{key} must be positive and finite")
                 values[name] = value
         return cls(**values)

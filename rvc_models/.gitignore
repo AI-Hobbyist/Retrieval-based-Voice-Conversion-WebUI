@@ -1,0 +1,3 @@
+*.pth
+*.index
+_api_test_*/
